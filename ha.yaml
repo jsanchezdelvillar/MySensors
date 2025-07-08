@@ -1,0 +1,46 @@
+input_text:
+  gw_command_queue:
+    name: GW Command Queue
+    max: 4096
+
+rest_command:
+  update_gw_command_queue:
+    url: "http://localhost:8123/api/webhook/gw_commands_update"
+    method: POST
+    headers:
+      authorization: "Bearer YOUR_LONG_LIVED_ACCESS_TOKEN"
+      content-type: "application/json"
+    payload: "{{ payload }}"
+
+automation:
+  - alias: "GW: Reply with Command Queue"
+    trigger:
+      - platform: webhook
+        webhook_id: gw_commands
+    action:
+      - service: webhook.send_response
+        data:
+          webhook_id: gw_commands
+          body: "{{ states('input_text.gw_command_queue') }}"
+          status: 200
+          headers:
+            Content-Type: "application/json"
+    mode: single
+
+  - alias: "GW: GW Command Queue Update"
+    trigger:
+      - platform: webhook
+        webhook_id: gw_commands_update
+    action:
+      - service: input_text.set_value
+        data:
+          entity_id: input_text.gw_command_queue
+          value: "{{ trigger.data | to_json }}"
+      - service: webhook.send_response
+        data:
+          webhook_id: gw_commands_update
+          body: '{"status":"ok"}'
+          status: 200
+          headers:
+            Content-Type: "application/json"
+    mode: single
