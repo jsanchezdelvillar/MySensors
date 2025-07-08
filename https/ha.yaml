@@ -1,0 +1,64 @@
+input_text:
+  gw_command_queue:
+    name: GW Command Queue
+    max: 2048
+
+rest_command:
+  update_gw_command_queue:
+    url: "https://your_homeassistant_domain_or_ip/api/webhook/gw_serial_poll"
+    method: POST
+    headers:
+      authorization: "Bearer YOUR_LONG_LIVED_ACCESS_TOKEN"
+      content-type: "text/plain"
+    payload: "{{ payload }}"
+
+automation:
+  - alias: "GW: Receive MySensors Lines (HTTPS)"
+    trigger:
+      - platform: webhook
+        webhook_id: gw_serial
+    action:
+      - variables:
+          lines: "{{ trigger.data.split('\n') }}"
+      - repeat:
+          for_each: "{{ lines }}"
+          sequence:
+            - service: system_log.write
+              data:
+                level: info
+                message: "GW line received: {{ repeat.item }}"
+            # Here, parse each MySensors line and update states/entities as needed
+            # Optionally, update command queue status if a read/finished ack received
+
+  - alias: "GW: Reply with MySensors Command Lines (HTTPS)"
+    trigger:
+      - platform: webhook
+        webhook_id: gw_serial_poll
+    action:
+      - service: webhook.send_response
+        data:
+          webhook_id: gw_serial_poll
+          body: "{{ states('input_text.gw_command_queue') }}"
+          status: 200
+          headers:
+            Content-Type: "text/plain"
+    mode: single
+
+script:
+  add_gw_command_to_queue:
+    alias: "Add MySensors Command to Queue"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.gw_command_queue
+        data:
+          value: >
+            0;255;3;0;31;cmd_001;set_time;2025-06-25T10:30:00Z
+
+# Optional: Example sensor to view last received line
+sensor:
+  - platform: template
+    sensors:
+      last_gw_line:
+        friendly_name: "Last GW Line"
+        value_template: "{{ state_attr('automation.gw_receive_mysensors_lines_https', 'last_triggered') }}"
