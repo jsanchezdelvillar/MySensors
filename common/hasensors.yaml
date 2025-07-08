@@ -1,0 +1,128 @@
+# This automation parses incoming lines from the gateway webhook
+# and updates Home Assistant sensors directly (using the 'sensor.' domain).
+# Requires matching template sensors in your configuration.yaml.
+
+automation:
+  - alias: "GW: Parse and Update Sensors (native sensors)"
+    trigger:
+      - platform: webhook
+        webhook_id: gw_serial
+    action:
+      - variables:
+          lines: "{{ trigger.data.split('\n') }}"
+      - repeat:
+          for_each: "{{ lines }}"
+          sequence:
+            - variables:
+                parts: "{{ repeat.item.split(';') }}"
+            - choose:
+                # Power
+                - conditions: "{{ parts[4] == '30' and parts[5].startswith('POWER:') }}"
+                  sequence:
+                    - service: homeassistant.update_entity
+                      target:
+                        entity_id: sensor.gw_power
+                # Energy
+                - conditions: "{{ parts[4] == '31' and parts[5].startswith('ENERGY:') }}"
+                  sequence:
+                    - service: homeassistant.update_entity
+                      target:
+                        entity_id: sensor.gw_energy
+                # Volume (node 1 example)
+                - conditions: "{{ parts[4] == '47' and parts[0] == '1' }}"
+                  sequence:
+                    - service: homeassistant.update_entity
+                      target:
+                        entity_id: sensor.node1_volume
+                # Temperature (node 1 example)
+                - conditions: "{{ parts[4] == '0' and parts[0] == '1' }}"
+                  sequence:
+                    - service: homeassistant.update_entity
+                      target:
+                        entity_id: sensor.node1_temperature
+                # Humidity (node 1 example)
+                - conditions: "{{ parts[4] == '1' and parts[0] == '1' }}"
+                  sequence:
+                    - service: homeassistant.update_entity
+                      target:
+                        entity_id: sensor.node1_humidity
+                # Battery Voltage (node 1 example)
+                - conditions: "{{ parts[4] == '38' and parts[0] == '1' }}"
+                  sequence:
+                    - service: homeassistant.update_entity
+                      target:
+                        entity_id: sensor.node1_battery
+
+# Define these template sensors in your configuration.yaml:
+sensor:
+  - platform: template
+    sensors:
+      gw_power:
+        friendly_name: "GW Power"
+        unit_of_measurement: "W"
+        value_template: >
+          {% set line = states('sensor.gw_last_line') %}
+          {% if 'POWER:' in line %}
+            {{ line.split('POWER:')[1] | float }}
+          {% else %}
+            0
+          {% endif %}
+      gw_energy:
+        friendly_name: "GW Energy"
+        unit_of_measurement: "kWh"
+        value_template: >
+          {% set line = states('sensor.gw_last_line') %}
+          {% if 'ENERGY:' in line %}
+            {{ line.split('ENERGY:')[1] | float }}
+          {% else %}
+            0
+          {% endif %}
+      node1_volume:
+        friendly_name: "Node1 Volume"
+        unit_of_measurement: "L"
+        value_template: >
+          {% set line = states('sensor.gw_last_line') %}
+          {% set parts = line.split(';') %}
+          {% if parts|length > 5 and parts[0] == '1' and parts[4] == '47' %}
+            {{ parts[5] | float }}
+          {% else %}
+            0
+          {% endif %}
+      node1_temperature:
+        friendly_name: "Node1 Temperature"
+        unit_of_measurement: "°C"
+        value_template: >
+          {% set line = states('sensor.gw_last_line') %}
+          {% set parts = line.split(';') %}
+          {% if parts|length > 5 and parts[0] == '1' and parts[4] == '0' %}
+            {{ parts[5] | float }}
+          {% else %}
+            0
+          {% endif %}
+      node1_humidity:
+        friendly_name: "Node1 Humidity"
+        unit_of_measurement: "%"
+        value_template: >
+          {% set line = states('sensor.gw_last_line') %}
+          {% set parts = line.split(';') %}
+          {% if parts|length > 5 and parts[0] == '1' and parts[4] == '1' %}
+            {{ parts[5] | float }}
+          {% else %}
+            0
+          {% endif %}
+      node1_battery:
+        friendly_name: "Node1 Battery"
+        unit_of_measurement: "V"
+        value_template: >
+          {% set line = states('sensor.gw_last_line') %}
+          {% set parts = line.split(';') %}
+          {% if parts|length > 5 and parts[0] == '1' and parts[4] == '38' %}
+            {{ parts[5] | float }}
+          {% else %}
+            0
+          {% endif %}
+      gw_last_line:
+        friendly_name: "GW Last Line"
+        value_template: "{{ state_attr('automation.gw_parse_and_update_sensors_native_sensors', 'last_triggered') }}"
+
+# Optionally, update 'gw_last_line' via automation or use a buffer sensor for each type.
